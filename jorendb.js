@@ -41,9 +41,9 @@
  * ***** END LICENSE BLOCK ***** */
 
 /*
- * jorendb is a simple command-line debugger for shell-js programs.  It is
- * intended as a demo of the Debugger object (as there are no shell js programs to
- * speak of).
+ * jorendb is a simple command-line debugger for shell-js programs. It is
+ * intended as a demo of the Debugger object (as there are no shell js programs
+ * to speak of).
  *
  * To run it: $JS -d path/to/this/file/jorendb.js
  * To run some JS code under it, try:
@@ -58,6 +58,9 @@
         var topFrame = null;
         var debuggeeValues = [null];
         var lastExc = null;
+
+        // Cleanup functions to run when we next re-enter the repl.
+        var replCleanups = [];
 
         // Convert a debuggee value v to a string.
         function dvToString(v) {
@@ -82,11 +85,42 @@
                 }
             });
 
-        function framePosition(f) {
-            if (!f.script)
-                return f.type + " code";
-            return (f.script.url || f.type + " code") + ":" + f.script.getOffsetLine(f.offset);
+        Debugger.Frame.prototype.frameDescription = function frameDescription() {
+            if (this.type == "call")
+                return ((this.callee.name || '<anonymous>') +
+                        "(" + this.arguments.map(dvToString).join(", ") + ")");
+            else
+                return this.type + " code";
         }
+
+        Debugger.Frame.prototype.positionDescription = function positionDescription() {
+            if (this.script) {
+                var line = this.script.getOffsetLine(this.offset);
+                if (this.script.url)
+                    return this.script.url + ":" + line;
+                return "line " + line;
+            }
+            return null;
+        }
+
+        Debugger.Frame.prototype.fullDescription = function fullDescription() {
+            var fr = this.frameDescription();
+            var pos = this.positionDescription();
+            if (pos)
+                return fr + ", " + pos;
+            return fr;
+        }
+
+        Object.defineProperty(Debugger.Frame.prototype, "line", {
+                configurable: true,
+                enumerable: false,
+                get: function() {
+                    if (this.script)
+                        return this.script.getOffsetLine(this.offset);
+                    else
+                        return null;
+                }
+            });
 
         function callDescription(f) {
             return ((f.callee.name || '<anonymous>') +
@@ -107,11 +141,7 @@
                     throw new Error("Internal error: frame not on stack");
             }
 
-            var me = '#' + n;
-            if (f.type === "call")
-                me += ' ' + callDescription(f);
-            me += ' ' + framePosition(f);
-            print(me);
+            print('#' + n + " " + f.fullDescription());
         }
 
         function saveExcursion(fn) {
@@ -304,6 +334,80 @@
             }
         }
 
+        function printPop(f, c) {
+            var fdesc = f.fullDescription();
+            if (c.return) {
+                print("frame returning (still selected): " + fdesc);
+                showDebuggeeValue(c.return);
+            } else if (c.throw) {
+                print("frame threw exception: " + fdesc);
+                showDebuggeeValue(c.throw);
+                print("(To rethrow it, type 'throw'.)");
+                lastExc = c.throw;
+            } else {
+                print("frame was terminated: " + fdesc);
+            }
+        }
+
+        // Set |prop| on |obj| to |value|, but then restore its current value
+        // when we next enter the repl.
+        function setUntilRepl(obj, prop, value) {
+            var saved = obj[prop];
+            obj[prop] = value;
+            replCleanups.push(function () { obj[prop] = saved; });
+        }
+
+        function stepCommand() {
+            var startFrame = topFrame;
+            var startLine = startFrame.line;
+            print("stepping in:   " + startFrame.fullDescription());
+            print("starting line: " + uneval(startLine));
+
+            function stepPopped(completion) {
+                // Note that we're popping this frame; we need to watch for
+                // subsequent step events on its caller.
+                this.reportedPop = true;
+                printPop(this, completion);
+                topFrame = focusedFrame = this;
+                return repl();
+            }
+
+            function stepEntered(newFrame) {
+                print("entered frame: " + newFrame.fullDescription());
+                topFrame = focusedFrame = newFrame;
+                return repl();
+            }
+
+            function stepStepped() {
+                print("stepStepped: " + this.fullDescription());
+                // If we've changed frame or line, then report that.
+                if (this !== startFrame || this.line != startLine) {
+                    topFrame = focusedFrame = this;
+                    if (focusedFrame != startFrame)
+                        print(focusedFrame.fullDescription());
+                    return repl();
+                }
+
+                // Otherwise, let execution continue.
+                return undefined;
+            }
+
+            setUntilRepl(dbg, 'onEnterFrame', stepEntered);
+
+            // If we're stepping after an onPop, watch for steps and pops in the
+            // next-older frame; this one is done.
+            var stepFrame = startFrame.reportedPop ? startFrame.older : startFrame;
+            if (!stepFrame || !stepFrame.script)
+                stepFrame = null;
+            if (stepFrame) {
+                setUntilRepl(stepFrame, 'onStep', stepStepped);
+                setUntilRepl(stepFrame, 'onPop',  stepPopped);
+            }
+
+            // Let the program continue!
+            return [undefined];
+        }
+
         // Build the table of commands.
         var commands = {};
         var commandArray = [
@@ -316,6 +420,7 @@
             frameCommand, "f",
             printCommand, "p",
             quitCommand, "q",
+            stepCommand, "s",
             throwCommand, "t",
             upCommand, "u"
             ];
@@ -358,12 +463,15 @@
         }
 
         function repl() {
+            while (replCleanups.length > 0)
+                replCleanups.pop()();
+
             var cmd;
             for (;;) {
                 print("\n" + prompt);
                 cmd = readline();
                 if (cmd === null)
-                    break;
+                    quit(0);
 
                 try {
                     var result = runcmd(cmd);
@@ -376,6 +484,7 @@
                 } catch (exc) {
                     print("*** Internal error: exception in the debugger code.");
                     print("    " + exc);
+                    print(exc.stack);
                     var me = prompt.replace(/^\((.*)\)$/, function (a, b) { return b; });
                     print("Debug " + me + "? (y/n)");
                     if (readline().match(/^\s*y/i) !== null)
