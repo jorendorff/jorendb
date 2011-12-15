@@ -347,7 +347,7 @@ function setUntilRepl(obj, prop, value) {
     replCleanups.push(function () { obj[prop] = saved; });
 }
 
-function stepCommand() {
+function doStepOrNext(kind) {
     var startFrame = topFrame;
     var startLine = startFrame.line;
     print("stepping in:   " + startFrame.fullDescription());
@@ -382,7 +382,8 @@ function stepCommand() {
         return undefined;
     }
 
-    setUntilRepl(dbg, 'onEnterFrame', stepEntered);
+    if (kind.step)
+        setUntilRepl(dbg, 'onEnterFrame', stepEntered);
 
     // If we're stepping after an onPop, watch for steps and pops in the
     // next-older frame; this one is done.
@@ -398,6 +399,9 @@ function stepCommand() {
     return [undefined];
 }
 
+function stepCommand() { return doStepOrNext({step:true}); }
+function nextCommand() { return doStepOrNext({next:true}); }
+
 // Build the table of commands.
 var commands = {};
 var commandArray = [
@@ -407,6 +411,7 @@ var commandArray = [
     downCommand, "d",
     forcereturnCommand,
     frameCommand, "f",
+    nextCommand, "n",
     printCommand, "p",
     quitCommand, "q",
     stepCommand, "s",
