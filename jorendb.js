@@ -54,7 +54,8 @@
 // Debugger state.
 var focusedFrame = null;
 var topFrame = null;
-var debuggeeValues = [null];
+var debuggeeValues = {};
+var nextDebuggeeValueIndex = 1;
 var lastExc = null;
 
 // Cleanup functions to run when we next re-enter the repl.
@@ -67,8 +68,8 @@ function dvToString(v) {
 
 function showDebuggeeValue(dv) {
     var dvrepr = dvToString(dv);
-    var i = debuggeeValues.length;
-    debuggeeValues[i] = dv;
+    var i = nextDebuggeeValueIndex++;
+    debuggeeValues["$" + i] = dv;
     print("$" + i + " = " + dvrepr);
 }
 
@@ -165,43 +166,25 @@ function backtraceCommand() {
 }
 
 function printCommand(rest) {
-    if (focusedFrame === null) {
-        // This is super bogus, need a way to create an env wrapping the debuggeeGlobal
-        // and eval against that.
-        var nonwrappedValue;
-        try {
-            nonwrappedValue = debuggeeGlobal.eval(rest);
-        } catch (exc) {
-            print("Exception caught.");
-            nonwrappedValue = exc;
-        }
-        if (typeof nonwrappedValue !== "object" || nonwrappedValue === null) {
-            // primitive value, no sweat
-            print("    " + uneval(nonwrappedValue));
-        } else {
-            // junk for now
-            print("    " + Object.prototype.toString.call(nonwrappedValue));
-        }
+    // This is the real deal.
+    var cv = saveExcursion(
+        () => focusedFrame == null
+              ? debuggeeGlobalWrapper.evalInGlobalWithBindings(rest, debuggeeValues)
+              : focusedFrame.evalWithBindings(rest, debuggeeValues));
+    if (cv === null) {
+        if (!dbg.enabled)
+            return [cv];
+        print("Debuggee died.");
+    } else if ('return' in cv) {
+        if (!dbg.enabled)
+            return [undefined];
+        showDebuggeeValue(cv.return);
     } else {
-        // This is the real deal.
-        var cv = saveExcursion(function () {
-                return focusedFrame.eval(rest);
-            });
-        if (cv === null) {
-            if (!dbg.enabled)
-                return [cv];
-            print("Debuggee died.");
-        } else if ('return' in cv) {
-            if (!dbg.enabled)
-                return [undefined];
-            showDebuggeeValue(cv.return);
-        } else {
-            if (!dbg.enabled)
-                return [cv];
-            print("Exception caught. (To rethrow it, type 'throw'.)");
-            lastExc = cv.throw;
-            showDebuggeeValue(lastExc);
-        }
+        if (!dbg.enabled)
+            return [cv];
+        print("Exception caught. (To rethrow it, type 'throw'.)");
+        lastExc = cv.throw;
+        showDebuggeeValue(lastExc);
     }
 }
 
@@ -509,7 +492,7 @@ if (typeof jorendbDepth == 'undefined') jorendbDepth = 0;
 
 var debuggeeGlobal = newGlobal("new-compartment");
 debuggeeGlobal.jorendbDepth = jorendbDepth + 1;
-dbg.addDebuggee(debuggeeGlobal);
+var debuggeeGlobalWrapper = dbg.addDebuggee(debuggeeGlobal);
 
 print("jorendb version -0.0");
 prompt = '(' + Array(jorendbDepth+1).join('meta-') + 'jorendb)';
