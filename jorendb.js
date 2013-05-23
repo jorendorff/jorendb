@@ -367,7 +367,8 @@ var commandArray = [
     quitCommand, "q",
     stepCommand, "s",
     throwCommand, "t",
-    upCommand, "u"
+    upCommand, "u",
+    helpCommand, "h",
     ];
 var last = null;
 for (var i = 0; i < commandArray.length; i++) {
@@ -378,7 +379,25 @@ for (var i = 0; i < commandArray.length; i++) {
         last = commands[cmd.name.replace(/Command$/, '')] = cmd;
 }
 
-// Break cmd into two parts: its first word and everything else.
+function helpCommand(rest) {
+    print("Available commands:");
+    var printcmd = function(group) {
+        print("  " + group.join(", "));
+    }
+
+    var group = [];
+    for (var cmd of commandArray) {
+        if (typeof cmd === "string") {
+            group.push(cmd);
+        } else {
+            if (group.length) printcmd(group);
+            group = [ cmd.name.replace(/Command$/, '') ];
+        }
+    }
+    printcmd(group);
+}
+
+// Break cmd into two parts: its first word and everything else. If it begins
 function breakcmd(cmd) {
     cmd = cmd.trimLeft();
     var m = /\s/.exec(cmd);
