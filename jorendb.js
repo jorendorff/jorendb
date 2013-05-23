@@ -121,6 +121,11 @@ function saveExcursion(fn) {
     }
 }
 
+// Evaluate an expression in the Debugger global
+function evalCommand(expr) {
+    eval(expr);
+}
+
 function quitCommand() {
     dbg.enabled = false;
     quit(0);
@@ -369,6 +374,7 @@ var commandArray = [
     throwCommand, "t",
     upCommand, "u",
     helpCommand, "h",
+    evalCommand, "!",
     ];
 var last = null;
 for (var i = 0; i < commandArray.length; i++) {
@@ -398,8 +404,11 @@ function helpCommand(rest) {
 }
 
 // Break cmd into two parts: its first word and everything else. If it begins
+// with punctuation, treat that as a separate word.
 function breakcmd(cmd) {
     cmd = cmd.trimLeft();
+    if ("!@#$%^&*_+=/?.,<>:;'\"".indexOf(cmd.substr(0, 1)) != -1)
+        return [cmd.substr(0, 1), cmd.substr(1).trimLeft()];
     var m = /\s/.exec(cmd);
     if (m === null)
         return [cmd, ''];
