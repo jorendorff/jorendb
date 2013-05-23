@@ -441,7 +441,7 @@ function repl() {
 
     var cmd;
     for (;;) {
-        print("\n" + prompt);
+        putstr("\n" + prompt);
         cmd = readline();
         if (cmd === null)
             return null;
@@ -491,6 +491,5 @@ debuggeeGlobal.jorendbDepth = jorendbDepth + 1;
 var debuggeeGlobalWrapper = dbg.addDebuggee(debuggeeGlobal);
 
 print("jorendb version -0.0");
-prompt = '(' + Array(jorendbDepth+1).join('meta-') + 'jorendb)';
-print("Prompt is " + prompt);
+prompt = '(' + Array(jorendbDepth+1).join('meta-') + 'jorendb) ';
 repl();
