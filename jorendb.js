@@ -493,7 +493,7 @@ var debuggeeGlobalWrapper = dbg.addDebuggee(debuggeeGlobal);
 print("jorendb version -0.0");
 prompt = '(' + Array(jorendbDepth+1).join('meta-') + 'jorendb) ';
 
-var args = arguments;
+var args = scriptArgs;
 while(args.length > 0) {
     var arg = args.shift();
     if (arg == '-f') {
