@@ -1,3 +1,4 @@
+#!/usr/bin/env js -d
 /* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
  * vim: set ts=8 sw=4 et tw=78:
  *
@@ -11,12 +12,7 @@
 /*
  * jorendb is a simple command-line debugger for shell-js programs. It is
  * intended as a demo of the Debugger object (as there are no shell js programs
- * to speak of).
- *
- * To run it: $JS -d path/to/this/file/jorendb.js
- * To run some JS code under it, try:
- *    (jorendb) print load("my-script-to-debug.js")
- * Execution will stop at debugger statements and you'll get a jorendb prompt.
+ * to speak of). See README.md.
  */
 
 // Debugger state.
@@ -58,7 +54,7 @@ Debugger.Frame.prototype.frameDescription = function frameDescription() {
                 "(" + this.arguments.map(dvToString).join(", ") + ")");
     else
         return this.type + " code";
-}
+};
 
 Debugger.Frame.prototype.positionDescription = function positionDescription() {
     if (this.script) {
@@ -68,7 +64,7 @@ Debugger.Frame.prototype.positionDescription = function positionDescription() {
         return "line " + line;
     }
     return null;
-}
+};
 
 Debugger.Frame.prototype.fullDescription = function fullDescription() {
     var fr = this.frameDescription();
@@ -76,22 +72,55 @@ Debugger.Frame.prototype.fullDescription = function fullDescription() {
     if (pos)
         return fr + ", " + pos;
     return fr;
-}
+};
+
+// Return the actual text that appears on the current line.
+Debugger.Frame.prototype.sourceLine = function sourceLine() {
+    if (!this.script)
+        return null;
+    var s = this.script.source;
+    if (!s)
+        return null;
+    var lines = s.lines;
+    var line = this.line;
+    if (line - 1 >= lines.length)
+        return null;
+    return lines[line - 1];
+};
 
 Object.defineProperty(Debugger.Frame.prototype, "line", {
-        configurable: true,
-        enumerable: false,
-        get: function() {
-            if (this.script)
-                return this.script.getOffsetLine(this.offset);
-            else
-                return null;
-        }
-    });
+    configurable: true,
+    enumerable: false,
+    get: function() {
+        if (this.script)
+            return this.script.getOffsetLine(this.offset);
+        else
+            return null;
+    }
+});
+
+Object.defineProperty(Debugger.Source.prototype, "lines", {
+    configurable: true,
+    enumerable: false,
+    get: function lines() {
+        if (!("__lines" in this))
+            this.__lines = this.text.split(/\n/g);
+        return this.__lines.map(s => s.trimRight());
+    }
+});
 
 function callDescription(f) {
     return ((f.callee.name || '<anonymous>') +
             "(" + f.arguments.map(dvToString).join(", ") + ")");
+}
+
+function printSourceLine(f) {
+    var line = f.sourceLine();
+    if (line !== null) {
+        var lineno = "" + f.line;
+        lineno = Array(6 - lineno.length).join(" ") + lineno;
+        print("" + lineno + " > " + line);
+    }
 }
 
 function showFrame(f, n) {
@@ -109,6 +138,7 @@ function showFrame(f, n) {
     }
 
     print('#' + n + " " + f.fullDescription());
+    printSourceLine(f);
 }
 
 function saveExcursion(fn) {
@@ -304,33 +334,41 @@ function setUntilRepl(obj, prop, value) {
 }
 
 function doStepOrNext(kind) {
+    if (focusedFrame === null) {
+        print("No stack.");
+        return;
+    }
+
     var startFrame = topFrame;
     var startLine = startFrame.line;
-    print("stepping in:   " + startFrame.fullDescription());
-    print("starting line: " + uneval(startLine));
+    //print("stepping in:   " + startFrame.fullDescription());
+    //print("starting line: " + uneval(startLine));
 
     function stepPopped(completion) {
         // Note that we're popping this frame; we need to watch for
         // subsequent step events on its caller.
         this.reportedPop = true;
         printPop(this, completion);
+        printSourceLine(this);
         topFrame = focusedFrame = this;
         return repl();
     }
 
     function stepEntered(newFrame) {
         print("entered frame: " + newFrame.fullDescription());
+        printSourceLine(newFrame);
         topFrame = focusedFrame = newFrame;
         return repl();
     }
 
     function stepStepped() {
-        print("stepStepped: " + this.fullDescription());
+        //print("stepStepped: " + this.fullDescription());
         // If we've changed frame or line, then report that.
         if (this !== startFrame || this.line != startLine) {
             topFrame = focusedFrame = this;
             if (focusedFrame != startFrame)
                 print(focusedFrame.fullDescription());
+            printSourceLine(focusedFrame);
             return repl();
         }
 
